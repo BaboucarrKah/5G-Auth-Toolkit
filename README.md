@@ -72,6 +72,8 @@ sequenceDiagram
 | `tamper-suci` | Flips a bit in the encrypted identity | HMAC tag in the SUCI fails (`SUCI_INVALID`) |
 | `wrong-network` | Rogue network reuses a challenge meant for another network | RES* is bound to the serving network name, so the home network rejects it (`RES_MISMATCH`) |
 
+ For what each attack looks like in the logs, and the break-it tests that show the test suite catches real bugs, see [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md).
+
 ## Design notes
 
 - **SUCI is unlinkable.** A fresh ephemeral key per SUCI means two registrations by the same person look unrelated on the air interface. There's a test for that.
