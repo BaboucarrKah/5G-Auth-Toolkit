@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from . import aka, suci
+from .events import EventLog
 from .milenage import Milenage
 
 PROFILE_B = 2   # the number the spec uses to say "this SUCI uses Profile B"
@@ -114,12 +115,27 @@ class HomeNetwork:
     subscribers: dict[str, Subscriber] = field(default_factory=dict)
     log: LogFn = _no_log
 
+    # Where security events go (for the SIEM). None means "don't log",
+    # so the tests and the normal simulator work exactly as before.
+    events: EventLog | None = None
+
     # Logins that have started but not finished yet. The key is RAND, so
     # when the answer comes back we can find the right vector again.
-    _pending: dict[bytes, tuple[aka.HomeAuthVector, bytes]] = field(default_factory=dict)
+    # We also remember who it was and which cell they were in, so a
+    # failure later on can be logged with that information.
+    _pending: dict[bytes, tuple[aka.HomeAuthVector, bytes, Subscriber, str]] = field(default_factory=dict)
 
     def add_subscriber(self, sub: Subscriber) -> None:
         self.subscribers[sub.msin] = sub
+
+    def _event(self, event_type: str, sub: Subscriber | None, snn: bytes,
+                cell: str, **fields) -> None:
+        """Send one security event, if logging is turned on."""
+        if self.events is None:
+            return
+        supi = f"imsi-{self.mcc}{self.mnc}{sub.msin}" if sub else None
+        self.events.emit(event_type, supi=supi, cell=cell,
+                            serving_network=snn.decode(), **fields)
 
     def resolve_suci(self, s: Suci) -> Subscriber:
         """SIDF: decrypt the SUCI and find the customer."""
@@ -140,9 +156,15 @@ class HomeNetwork:
         self.log("SIDF", f"SUCI resolved to imsi-{self.mcc}{self.mnc}{msin}")
         return self.subscribers[msin]
 
-    def authenticate(self, s: Suci, snn: bytes) -> aka.ServingAuthVector:
+    def authenticate(self, s: Suci, snn: bytes,
+                     cell: str = "unknown") -> aka.ServingAuthVector:
         """Step 2: find the customer and make a challenge for them."""
-        sub = self.resolve_suci(s)
+        try:
+            sub = self.resolve_suci(s)
+        except aka.AuthError as e:
+            # We don't know who it is yet, so no subscriber in this event
+            self._event("auth_failure", None, snn, cell, cause=e.cause)
+            raise
 
         # New SQN for every login, so the phone can tell new from old
         sub.sqn += 1
@@ -151,7 +173,7 @@ class HomeNetwork:
 
         # Save the full vector (with XRES* and KAUSF) for later, and also
         # which network asked, so we can check the answer is for the same one
-        self._pending[av.rand] = (av, snn)
+        self._pending[av.rand] = (av, snn, sub, cell)
         self.log("AUSF", f"auth vector generated (SQN={sub.sqn})")
 
         # The serving network only gets the stripped-down version
@@ -161,12 +183,28 @@ class HomeNetwork:
         """Step 5: the final check. Give out KSEAF only if RES* is right."""
         if rand not in self._pending:
             raise aka.AuthError("NO_CONTEXT", "no pending authentication")
-
+        
         # pop removes it, so the same login can't be confirmed twice
-        av, snn = self._pending.pop(rand)
-        kseaf = aka.ausf_confirm(av, res_star, snn)
+        av, snn, sub, cell = self._pending.pop(rand)
+        try:
+            kseaf = aka.ausf_confirm(av, res_star, snn)
+        except aka.AuthError as e:
+            self._event("auth_failure", sub, snn, cell, cause=e.cause)
+            raise
+        self._event("auth_success", sub, snn, cell)
         self.log("AUSF", "RES* matches XRES*, KSEAF released")
         return kseaf
+
+    def report_failure(self, rand: bytes, cause: str) -> None:
+        """The serving network tells us the login failed on its side.
+
+        For example the phone refused our challenge (MAC or SQN check).
+        We look up who it was from RAND and log it.
+        """
+        if rand not in self._pending:
+            return
+        _, snn, sub, cell = self._pending.pop(rand)
+        self._event("auth_failure", sub, snn, cell, cause=cause)
 
 
 class ServingNetwork:
