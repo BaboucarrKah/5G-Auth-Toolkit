@@ -219,20 +219,31 @@ class ServingNetwork:
         self.home = home
         self._log = log
 
-    def register(self, ue: UE) -> bytes:
-        """Run one full login. Returns KSEAF if everything checks out."""
+    def register(self, ue: UE, cell: str = "unknown") -> bytes:
+        """Run one full login. Returns KSEAF if everything checks out.
+        
+        
+        cell is the base station the phone is connected through.
+        """
         # 1. Phone sends its SUCI
         s = ue.make_suci()
 
         # 2. Ask the home network for a challenge
-        sv = self.home.authenticate(s, self.snn)
+        sv = self.home.authenticate(s, self.snn, cell)
         self._log("SEAF", f"auth request to UE, SNN={self.snn.decode()}")
 
         # 3. Pass the challenge to the phone and get RES* back
-        res_star = ue.on_auth_request(sv.rand, sv.autn, self.snn)
+        # If the phone refuses, tell the home network so it gets logged.
+        
+        try:
+            res_star = ue.on_auth_request(sv.rand, sv.autn, self.snn)
+        except aka.AuthError as e:
+            self.home.report_failure(sv.rand, cause=e.cause)
+            raise
 
         # 4. Quick check on our side with the hash we got
         if not aka.seaf_check(sv, res_star):
+            self.home.report_failure(sv.rand, cause="RES_MISMATCH")
             raise aka.AuthError("RES_MISMATCH", "HRES* does not match HXRES*")
         self._log("SEAF", "HRES* OK, asking AUSF to confirm")
 
