@@ -72,7 +72,7 @@ sequenceDiagram
 | `tamper-suci` | Flips a bit in the encrypted identity | HMAC tag in the SUCI fails (`SUCI_INVALID`) |
 | `wrong-network` | Rogue network reuses a challenge meant for another network | RES* is bound to the serving network name, so the home network rejects it (`RES_MISMATCH`) |
 
- For what each attack looks like in the logs, and the break-it tests that show the test suite catches real bugs, see [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md).
+ For what each attack looks like in the logs, and the break-it tests that show the test suite catches real bugs, see [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md). The full build log, step by step with screenshots, is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ## Security monitoring
 
