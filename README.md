@@ -74,6 +74,19 @@ sequenceDiagram
 
  For what each attack looks like in the logs, and the break-it tests that show the test suite catches real bugs, see [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md).
 
+## Security monitoring
+
+Blocking an attack isn't the same as noticing it. The home network can log every login and every failure as a JSON event, ready for a SIEM:
+
+```json
+{"time": "2026-11-01T12:08:07.292+00:00", "event_type": "auth_failure", "subscriber": "4fc86ba71c2ffb4a",
+ "cell": "cell-07", "serving_network": "5G:mnc001.mcc242.3gppnetwork.org", "cause": "MAC_FAILURE"}
+```
+
+The subscriber is logged as an HMAC-SHA256 pseudonym of the SUPI, never the real identity. Failures the phone detects (a forged MAC or an old SQN) are reported back by the serving network, so they reach the logs too.
+
+The companion project **[5g-detection-lab](https://github.com/BaboucarrKah/5g-detection-lab)** uses this to generate an hour of realistic traffic with four hidden attacks, and finds all four in Splunk with detection rules mapped to MITRE FiGHT.
+
 ## Design notes
 
 - **SUCI is unlinkable.** A fresh ephemeral key per SUCI means two registrations by the same person look unrelated on the air interface. There's a test for that.
@@ -90,6 +103,7 @@ src/fiveg_auth/
   suci.py       ECIES Profile B conceal / deconceal (TS 33.501 Annex C)
   aka.py        5G-AKA, RES*, HXRES*, key derivation (TS 33.501 Annex A)
   network.py    UE, serving network and home network models
+  events.py     JSON security events with pseudonymised subscribers
   cli.py        simulator and attack scenarios
 tests/          conformance vectors + security property tests
 ```
@@ -109,7 +123,7 @@ This is a learning and demonstration tool, not production code. It doesn't imple
 ## Roadmap
 
 - [ ] Run UE, SEAF and home network as separate processes over sockets
-- [ ] Structured JSON logging and detection rules for a SIEM
+- [x] Structured JSON logging and detection rules for a SIEM (see [5g-detection-lab](https://github.com/BaboucarrKah/5g-detection-lab))
 - [ ] Store the home network private key in a cloud KMS / HSM
 - [ ] AUTS resynchronisation and Profile A
 
