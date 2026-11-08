@@ -11,8 +11,14 @@ import hashlib  # SHA-256 for the pseudonyms
 import hmac  # keyed hash, so pseudonyms can't be brute-forced back to the IMSI
 import json  # turns a Python dictionary into a JSON line
 import sys  # sys.stdout = the screen, used as the default output
+from collections.abc import Callable  # type hint: something you can call, like a function
 from datetime import UTC, datetime  # timestamps, always in UTC so logs line up
 from typing import TextIO  # type hint: something you can write text to
+
+
+def utc_now() -> datetime:
+    """The real current time in UTC. The default clock for EventLog."""
+    return datetime.now(UTC)
 
 
 def pseudonymize(supi: str, key: bytes) -> str:
@@ -32,9 +38,11 @@ class EventLog:
     but you can pass in a file instead.
     """
 
-    def __init__(self, pseudonym_key: bytes, out: TextIO = sys.stdout) -> None:
+    def __init__(self, pseudonym_key: bytes, out: TextIO = sys.stdout,
+                 clock: Callable[[], datetime] = utc_now) -> None:
         self._key = pseudonym_key
         self._out = out
+        self._clock = clock
 
     def emit(self, event_type: str, supi: str | None = None,
              time: datetime | None = None, **fields) -> dict:
@@ -46,7 +54,7 @@ class EventLog:
         **fields   : anything else worth logging, e.g. cell="cell-07"
         """
         event = {
-            "time": (time or datetime.now(UTC)).isoformat(timespec="milliseconds"),
+            "time": (time or self._clock()).isoformat(timespec="milliseconds"),
             "event_type": event_type,
         }
         if supi is not None:
